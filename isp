@@ -219,3 +219,90 @@ public class WaypointMover : Component
         ResetRoute();
     }
 }
+
+
+
+
+................
+
+
+private void Update()
+{
+    if (!isMoving || splineObject == null || waypoints == null || waypoints.Count == 0 || RotatingNodes == null || RotatingNodes.Count == 0)
+        return;
+
+    // Позиция кабины в мире (фиксированная!)
+    vec3 cabinePos = RotatingNodes[0].WorldPosition;
+
+    // Обработка индекса
+    if (currentWaypointIndex >= waypoints.Count)
+    {
+        if (loopRoute) currentWaypointIndex = 0;
+        else { isMoving = false; return; }
+    }
+
+    Node targetWaypoint = waypoints[currentWaypointIndex];
+    if (targetWaypoint == null) return;
+
+    vec3 targetPos = targetWaypoint.WorldPosition;
+    vec3 directionToTarget = targetPos - cabinePos;
+    float distance = directionToTarget.Length;
+
+    // Достигли точки?
+    if (distance < waypointThreshold)
+    {
+        if (currentWaypointIndex < waypoints.Count - 1)
+            currentWaypointIndex++;
+        else
+        {
+            if (loopRoute) currentWaypointIndex = 0;
+            else { isMoving = false; return; }
+        }
+        // Обновляем цель
+        if (currentWaypointIndex < waypoints.Count && waypoints[currentWaypointIndex] != null)
+        {
+            targetPos = waypoints[currentWaypointIndex].WorldPosition;
+            directionToTarget = targetPos - cabinePos;
+        }
+    }
+
+    // === ДВИЖЕНИЕ КАРТЫ ===
+    // Чтобы кабина "ехала вперёд", карта должна двигаться НАЗАД
+    float speed = GetSpeed() * Game.IFps;
+    vec3 moveDir = MathLib.Normalize(directionToTarget);
+    vec3 mapOffset = -moveDir * speed; // ← карта движется в обратную сторону
+
+    // Применяем смещение к карте
+    splineObject.WorldPosition += mapOffset;
+
+    // === ВРАЩЕНИЕ КАБИНЫ ===
+    if (directionToTarget.Length > 0.001f)
+    {
+        vec3 desiredForward = -moveDir; // в Unigine вперёд = -Z
+        vec3 desiredUp = vec3.UP;
+
+        vec3 right = MathLib.Normalize(MathLib.Cross(desiredUp, desiredForward));
+        if (right.Length < 0.001f)
+        {
+            desiredUp = vec3.RIGHT;
+            right = MathLib.Normalize(MathLib.Cross(desiredUp, desiredForward));
+        }
+        vec3 up = MathLib.Normalize(MathLib.Cross(desiredForward, right));
+
+        // ... (как раньше) строим targetRotation ...
+
+        targetRotation = MathLib.Normalize(targetRotation * new quat(270, 0, 0)); // оставьте, если работает
+
+        currentRotation = MathLib.Slerp(currentRotation, targetRotation, rotationSpeed);
+
+        // Применяем ЛОКАЛЬНОЕ вращение к дочерним объектам кабины
+        for (int i = 0; i < RotatingNodes.Count; i++)
+        {
+            if (RotatingNodes[i] != null)
+            {
+                RotatingNodes[i].SetRotation(currentRotation);
+                RotatingNodes[i].Scale = originalLocalScales[i];
+            }
+        }
+    }
+}
