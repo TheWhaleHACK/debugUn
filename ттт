@@ -1,0 +1,38 @@
+private void ApplyRotationToAllObjects()
+{
+    // Вместо вращения каждого объекта в списке,
+    // просто применяем рассчитанное вращение к основному объекту (splineObject).
+    if (splineObject != null)
+    {
+        // Применяем вращение к основному объекту
+        splineObject.SetWorldRotation(currentRotation);
+
+        // Восстанавливаем масштаб, если нужно (хотя он должен сохраняться, если не изменяется)
+        // splineObject.WorldScale = originalScaleOfSplineObject; // если вы его тоже сохранили бы
+    }
+
+    // Удалите или закомментируйте весь остальной код в этом методе,
+    // который пытается вращать RotatingNodes по отдельности.
+    /*
+    if (RotatingNodes == null) return;
+
+    for (int i = 0; i < RotatingNodes.Count; i++)
+    {
+        if (RotatingNodes[i] != null)
+        {
+            Node obj = RotatingNodes[i];
+
+            // Сохраняем позицию
+            vec3 savedPosition = obj.WorldPosition;
+
+            // Применяем вращение
+            obj.SetWorldRotation(currentRotation);
+
+            // Восстанавливаем позицию
+            obj.WorldPosition = savedPosition;
+            // Восстанавливаем масштаб
+            obj.WorldScale = originalScales[i];
+        }
+    }
+    */
+}
