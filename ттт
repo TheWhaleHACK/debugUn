@@ -1,23 +1,95 @@
-    if (RotatingNodes == null) return;
+private void Update()
+{
+    if (!isMoving || splineObject == null || waypoints == null || waypoints.Count == 0)
+        return;
 
-    for (int i = 0; i < RotatingNodes.Count; i++)
+    if (currentWaypointIndex >= waypoints.Count)
     {
-        if (RotatingNodes[i] != null)
+        if (loopRoute)
         {
-            Node obj = RotatingNodes[i];
-            
-            // Сохраняем матрицу мира
-            mat4 transform = obj.GetWorldTransform();
-            
-            // Заменяем только вращение, сохраняя позицию и масштаб
-            transform = MathLib.Mat4FromQuat(currentRotation) * MathLib.Mat4Translate(transform.GetTranslate());
-            
-            // Восстанавливаем масштаб (если нужен)
-            if (i < originalScales.Count)
-            {
-                transform = MathLib.Mat4Scale(originalScales[i]) * transform;
-            }
-
-            obj.SetWorldTransform(transform);
+            currentWaypointIndex = 0;
+        }
+        else
+        {
+            isMoving = false;
+            return;
         }
     }
+
+    Node targetWaypoint = waypoints[currentWaypointIndex];
+    if (targetWaypoint == null)
+        return;
+
+    // Перемещение splineObject (как раньше)
+    vec3 targetPosition = targetWaypoint.WorldPosition; // УБРАЛ ЗДЕСЬ МИНУС
+    vec3 currentPosition = splineObject.WorldPosition;
+
+    vec3 direction = targetPosition - currentPosition;
+    float distanceToTarget = MathLib.Length(direction);
+
+    if (distanceToTarget < waypointThreshold)
+    {
+        if (currentWaypointIndex < waypoints.Count - 1)
+        {
+            currentWaypointIndex++;
+        }
+        else
+        {
+            if (loopRoute)
+            {
+                currentWaypointIndex = 0;
+            }
+            else
+            {
+                isMoving = false;
+                return;
+            }
+        }
+
+        // Обновляем цель для следующей точки
+        if (currentWaypointIndex < waypoints.Count && waypoints[currentWaypointIndex] != null)
+        {
+            targetPosition = waypoints[currentWaypointIndex].WorldPosition;
+            direction = targetPosition - currentPosition;
+            distanceToTarget = MathLib.Length(direction);
+        }
+    }
+
+    // Перемещение splineObject
+    float speed = GetSpeed() * Game.IFps;
+    vec3 moveDirection = MathLib.Normalize(direction);
+    float maxMoveDistance = MathLib.Min(speed, distanceToTarget);
+    vec3 newPosition = currentPosition + moveDirection * maxMoveDistance;
+    splineObject.WorldPosition = newPosition;
+
+    // ————————————————————————————————————————————————————————————————————————
+    // 🆕 ОБНОВЛЕНИЕ ВРАЩЕНИЯ RotatingNodes ОТНОСИТЕЛЬНО СЛЕДУЮЩЕЙ ТОЧКИ
+    // ————————————————————————————————————————————————————————————————————————
+
+    if (RotatingNodes != null && RotatingNodes.Count > 0)
+    {
+        vec3 lookTargetPos = targetPosition; // Позиция следующей точки
+
+        foreach (var rotatingNode in RotatingNodes)
+        {
+            if (rotatingNode == null) continue;
+
+            vec3 nodePos = rotatingNode.WorldPosition;
+            vec3 nodeToTargetDir = lookTargetPos - nodePos;
+
+            if (nodeToTargetDir.Length > 0.001f)
+            {
+                quat targetRotation = CalculateLookRotation(nodeToTargetDir);
+
+                // Применяем вращение к конкретному объекту
+                vec3 savedPos = rotatingNode.WorldPosition;
+                vec3 savedScale = rotatingNode.WorldScale;
+
+                rotatingNode.SetWorldRotation(targetRotation);
+
+                rotatingNode.WorldPosition = savedPos;
+                rotatingNode.WorldScale = savedScale;
+            }
+        }
+    }
+}
