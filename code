@@ -91,11 +91,12 @@ public class WaypointMover : Component
             return;
 
         // Получаем позицию текущей точки
-        vec3 targetPosition = targetWaypoint.WorldPosition;
+        vec3 targetPosition = -targetWaypoint.WorldPosition;
         vec3 currentPosition = splineObject.WorldPosition;
 
         // Вычисляем направление к цели
         vec3 direction = targetPosition - currentPosition;
+        Log.MessageLine(direction.Length);
         float distanceToTarget = MathLib.Length(direction);
 
         // Если близко к точке - переходим к следующей
