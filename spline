@@ -1,0 +1,267 @@
+using System;
+using System.Collections.Generic;
+using Unigine;
+
+[Component(PropertyGuid = "5b4f8b01a15c42252268c16c97912bacbdb34b62")]
+public class ObjectSplineMover : Component
+{
+    [ShowInEditor] private Node splineObject;
+    [ShowInEditor] private Node speedLever; // Управление скоростью
+    [ShowInEditor] private Node splineNode;
+    [ShowInEditor] private Node StrelkaRotation;
+    [ShowInEditor, Parameter(Title = "Sound Source Node")] private Node soundNode; // Нода типа SoundSource
+    [ShowInEditor, Parameter(Title = "Вращающиеся ноды")] private List<Node> RotatingNodes; // ← ОСНОВНОЙ СПИСОК
+    [ShowInEditor] private Node descriptionNode; // Нода objectText
+    [ShowInEditor] private float rotationSpeed = 0.05f; // ← НАСТРОЙКА ПЛАВНОСТИ
+
+    private List<SplineSegment> splineSegments = new List<SplineSegment>();
+    private SplineSegment curSplineSegment;
+    private WorldSplineGraph splineGraph;
+    private int splineSegmentIndex = 0;
+    private quat currentRotation = quat.IDENTITY; // Текущее плавное вращение
+
+    private float cdist = 0f;
+    private float ctime = 0f;
+
+    private vec3 pos;
+    private vec3 newPos;
+    private vec3 oldPos;
+
+    private globalSpeed globalSpeedComponent;
+    private SoundSource soundSource;
+    private float segmentLengthInv; // Кэшируем обратную длину сегмента
+
+    private List<vec3> originalScales = new List<vec3>(); // ← добавь это в поля класса
+
+
+    void Init()
+    {
+        // Проверка и получение компонента globalSpeed
+        if (speedLever != null)
+        {
+            globalSpeedComponent = speedLever.GetComponent<globalSpeed>();
+            if (globalSpeedComponent == null)
+                Log.Error($"Node {speedLever.Name} does not have a globalSpeed component!");
+        }
+        else
+        {
+            Log.Error("speedLever is not set in the editor.");
+        }
+
+        // Инициализация сплайна
+        if (splineNode != null)
+        {
+            splineGraph = splineNode as WorldSplineGraph;
+            if (splineGraph != null)
+            {
+                splineGraph.GetSplineSegments(splineSegments);
+                if (splineSegments.Count > 0)
+                {
+                    curSplineSegment = splineSegments[0];
+                    segmentLengthInv = 1f / curSplineSegment.Length;
+                }
+            }
+            else
+            {
+                Log.Error("splineNode is not a WorldSplineGraph!");
+            }
+        }
+
+        // Начальная позиция
+        pos = splineObject.WorldPosition;
+        newPos = pos;
+        oldPos = pos;
+
+        // Инициализация звука
+        if (soundNode != null && soundNode is SoundSource)
+        {
+            soundSource = soundNode as SoundSource;
+        }
+        else
+        {
+            Log.Error("soundNode is either null or not a SoundSource!");
+        }
+
+        // ✅ Инициализируем начальное вращение из ПЕРВОЙ ноды в списке (если есть)
+        if (RotatingNodes != null && RotatingNodes.Count > 0 && RotatingNodes[0] != null)
+        {
+            currentRotation = RotatingNodes[0].GetWorldRotation();
+        }
+        else
+        {
+            currentRotation = quat.IDENTITY;
+        }
+
+        // ✅ Кэшируем ИСХОДНЫЙ scale для каждой ноды — только один раз при старте
+        originalScales.Clear();
+        if (RotatingNodes != null)
+        {
+            foreach (var node in RotatingNodes)
+            {
+                if (node != null)
+                {
+                    originalScales.Add(node.WorldScale);
+                }
+                else
+                {
+                    originalScales.Add(vec3.ONE); // на случай, если нода null — заглушка
+                }
+            }
+        }
+        else
+        {
+            originalScales.Clear();
+        }       
+    }
+
+    private float GetSpeed() => globalSpeedComponent?.gSpeed ?? 0f;
+
+    private bool IsEnd() => globalSpeedComponent?.gEnd ?? false;
+
+    public float GetDistanceToMove() => GetSpeed() * Game.IFps;
+
+    public float GetTime() => ctime * segmentLengthInv;
+
+    private void UpdateRotation()
+    {
+        quat currentRotation2 = speedLever.GetRotation();
+        currentRotation2.x = -0.001f;
+        speedLever.SetRotation(currentRotation2);
+    }
+
+    private void Update()
+    {
+        if (IsEnd())
+            UpdateRotation();
+
+        // Обновление расстояния и времени
+        float distanceToMove = GetDistanceToMove();
+        cdist += distanceToMove;
+        ctime += Game.IFps;
+
+        // Проверка конца сегмента
+        if (cdist >= curSplineSegment.Length)
+        {
+            splineSegmentIndex++;
+            if (splineSegmentIndex >= splineSegments.Count)
+            {
+                splineSegmentIndex = 0; // Зацикливание
+            }
+
+            curSplineSegment = splineSegments[splineSegmentIndex];
+            segmentLengthInv = 1f / curSplineSegment.Length;
+            cdist = 0f;
+            ctime = 0f;
+        }
+
+        // Интерполяция позиции
+        newPos = MathLib.Lerp(curSplineSegment.StartPoint.Position, curSplineSegment.EndPoint.Position, GetTime());
+
+        // Вычисление направления
+        vec3 forward = MathLib.Normalize(newPos - oldPos);
+
+        if (forward.Length < 0.001f)
+        {
+            splineObject.WorldPosition = pos;
+            oldPos = newPos;
+            return;
+        }
+
+        // ✅ Определяем "вперёд" — в Unigine это -Z
+// ✅ Определяем "вперёд" — в Unigine это -Z
+vec3 desiredForward = -forward;
+
+// ✅ Базовый UP
+vec3 desiredUp = vec3.UP;
+
+// ⚠️ Проверка: если forward почти параллелен up — меняем up
+vec3 right = MathLib.Normalize(MathLib.Cross(desiredUp, desiredForward));
+if (right.Length < 0.001f)
+{
+    desiredUp = vec3.RIGHT;
+    right = MathLib.Normalize(MathLib.Cross(desiredUp, desiredForward));
+}
+
+// ✅ Пересчитываем стабильный up
+vec3 up = MathLib.Normalize(MathLib.Cross(desiredForward, right));
+
+// ✅ Строим кватернион НАПРЯМУЮ из базиса (без матрицы!)
+// Формула: кватернион из ортонормированной тройки (right, up, forward)
+// Используем метод, основанный на следе матрицы — но без создания самой матрицы
+
+float trace = right.x + up.y + desiredForward.z;
+quat targetRotation;
+
+if (trace > 0)
+{
+    float s = 0.5f / MathLib.Sqrt(trace + 1.0f);
+    targetRotation.w = 0.25f / s;
+    targetRotation.x = (up.z - desiredForward.y) * s;
+    targetRotation.y = (desiredForward.x - right.z) * s;
+    targetRotation.z = (right.y - up.x) * s;
+}
+else
+{
+    if (right.x > up.y && right.x > desiredForward.z)
+    {
+        float s = 2.0f * MathLib.Sqrt(1.0f + right.x - up.y - desiredForward.z);
+        targetRotation.w = (up.z - desiredForward.y) / s;
+        targetRotation.x = 0.25f * s;
+        targetRotation.y = (right.y + up.x) / s;
+        targetRotation.z = (desiredForward.x + right.z) / s;
+    }
+    else if (up.y > desiredForward.z)
+    {
+        float s = 2.0f * MathLib.Sqrt(1.0f + up.y - right.x - desiredForward.z);
+        targetRotation.w = (desiredForward.x - right.z) / s;
+        targetRotation.x = (right.y + up.x) / s;
+        targetRotation.y = 0.25f * s;
+        targetRotation.z = (up.z + desiredForward.y) / s;
+    }
+    else
+    {
+        float s = 2.0f * MathLib.Sqrt(1.0f + desiredForward.z - right.x - up.y);
+        targetRotation.w = (right.y - up.x) / s;
+        targetRotation.x = (desiredForward.x + right.z) / s;
+        targetRotation.y = (up.z + desiredForward.y) / s;
+        targetRotation.z = 0.25f * s;
+    }
+}
+
+        // ✅ Нормализуем на всякий случай
+
+targetRotation = MathLib.Normalize(targetRotation * new quat(270,0,0));
+
+        // ✅ Плавная интерполяция
+        currentRotation = MathLib.Slerp(currentRotation, targetRotation, rotationSpeed);
+
+        // ✅ Применяем вращение ко ВСЕМ нодам в списке
+        // ✅ Применяем вращение ко ВСЕМ нодам в списке — БЕЗ ПОТЕРИ SCALE И ПОЗИЦИИ
+        if (RotatingNodes != null)
+        {
+            for (int i = 0; i < RotatingNodes.Count; i++)
+            {
+                if (RotatingNodes[i] != null)
+                {
+                    Node node = RotatingNodes[i];
+
+                    // Сохраняем текущий scale и position — они могут сломаться при SetWorldTransform
+                    vec3 savedScale = node.WorldScale;
+                    vec3 savedPosition = node.WorldPosition;
+
+                    // Устанавливаем целевое мировое вращение
+                    node.SetWorldRotation(currentRotation);
+
+                    // Восстанавливаем scale и position — это предотвращает искажения
+                    node.WorldScale=originalScales[i];
+                    node.WorldPosition=(savedPosition);
+                }
+            }
+        }
+
+        // Обновляем позицию — оставляем как у тебя
+        pos -= forward * distanceToMove;
+        splineObject.WorldPosition = pos;
+        oldPos = newPos;
+    }
+}
