@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using Unigine;
 
@@ -94,10 +93,9 @@ public class WaypointMover : Component
         vec3 targetPosition = -targetWaypoint.WorldPosition;
         vec3 currentPosition = splineObject.WorldPosition;
 
-        // Вычисляем направление к цели
-        vec3 direction = targetPosition - currentPosition;
-        Log.MessageLine(direction.Length);
-        float distanceToTarget = MathLib.Length(direction);
+        // Вычисляем направление к цели (для движения)
+        vec3 directionToTarget = targetPosition - currentPosition;
+        float distanceToTarget = MathLib.Length(directionToTarget);
 
         // Если близко к точке - переходим к следующей
         if (distanceToTarget < waypointThreshold)
@@ -119,20 +117,12 @@ public class WaypointMover : Component
                     return;
                 }
             }
-            
-            // Обновляем цель для следующей точки
-            if (currentWaypointIndex < waypoints.Count && waypoints[currentWaypointIndex] != null)
-            {
-                targetPosition = waypoints[currentWaypointIndex].WorldPosition;
-                direction = targetPosition - currentPosition;
-                distanceToTarget = MathLib.Length(direction);
-            }
         }
 
         // Перемещение объекта
         float speed = GetSpeed() * Game.IFps;
-        if (direction.Length < 0.001f) return; // избегаем деления на ноль
-        vec3 moveDirection = MathLib.Normalize(direction);
+        if (directionToTarget.Length < 0.001f) return;
+        vec3 moveDirection = MathLib.Normalize(directionToTarget);
         
         // Ограничиваем перемещение, чтобы не пролететь мимо точки
         float maxMoveDistance = MathLib.Min(speed, distanceToTarget);
@@ -141,10 +131,23 @@ public class WaypointMover : Component
         // Устанавливаем новую позицию
         splineObject.WorldPosition = newPosition;
 
+        // === ИСПРАВЛЕНИЕ: плавный поворот через lookahead-точку ===
+        // Вместо направления к текущей точке — смотрим на СЛЕДУЮЩУЮ
+        int nextIndex = (currentWaypointIndex + 1) % waypoints.Count;
+        Node lookaheadWaypoint = waypoints[nextIndex];
+        if (lookaheadWaypoint == null) return;
+
+        vec3 lookaheadPosition = -lookaheadWaypoint.WorldPosition;
+        vec3 directionForRotation = lookaheadPosition - currentPosition;
+
+        if (directionForRotation.Length < 0.001f) return;
+
+        vec3 moveDirForRotation = MathLib.Normalize(directionForRotation);
+        // ==========================================================
 
         //ROTATING
-        // В Unigine "вперёд" = -Z → desiredForward = -moveDirection
-        vec3 desiredForward = moveDirection;
+        // В Unigine "вперёд" = -Z → но у вас уже всё настроено под moveDirection без минуса
+        vec3 desiredForward = moveDirForRotation; // ← БЫЛО: moveDirection, СТАЛО: moveDirForRotation
         vec3 desiredUp = vec3.UP;
 
         vec3 right = MathLib.Normalize(MathLib.Cross(desiredUp, desiredForward));
@@ -209,42 +212,41 @@ public class WaypointMover : Component
                 if (RotatingNodes[i] != null)
                 {
                     Node child = RotatingNodes[i];
-                    child.SetRotation(currentRotation);     // ← ключевое изменение!
-                    child.WorldScale = originalScales[i]; 
-                    // Позицию НЕ трогаем — она задана в иерархии
+                    // Сохраняем текущий scale и position — они могут сломаться при SetWorldTransform
+                    vec3 savedScale = child.WorldScale;
+                    vec3 savedPosition = child.WorldPosition;
+
+                    // Устанавливаем целевое мировое вращение
+                    child.SetWorldRotation(currentRotation);
+
+                    // Восстанавливаем scale и position — это предотвращает искажения
+                    child.WorldScale = originalScales[i];
+                    child.WorldPosition = savedPosition;
                 }
             }
         }
     }
 
+    // --- Остальные методы без изменений ---
     private quat CalculateLookRotation(vec3 forward)
     {
-        // В Unigine обычно "вперед" - это -Z ось
         vec3 desiredForward = -MathLib.Normalize(forward);
         vec3 desiredUp = vec3.UP;
-
-        // Проверяем, не параллельны ли векторы
         vec3 right = MathLib.Normalize(MathLib.Cross(desiredUp, desiredForward));
         if (right.Length < 0.001f)
         {
             desiredUp = vec3.RIGHT;
             right = MathLib.Normalize(MathLib.Cross(desiredUp, desiredForward));
         }
-
         vec3 up = MathLib.Normalize(MathLib.Cross(desiredForward, right));
-
-        // Создаем кватернион из ортонормированного базиса
         return CreateQuaternionFromBasis(right, up, desiredForward);
     }
 
     private quat CreateQuaternionFromBasis(vec3 right, vec3 up, vec3 forward)
     {
-        // Матрица поворота из базисных векторов
         float m00 = right.x, m01 = right.y, m02 = right.z;
         float m10 = up.x, m11 = up.y, m12 = up.z;
         float m20 = forward.x, m21 = forward.y, m22 = forward.z;
-
-        // Преобразование матрицы 3x3 в кватернион
         float trace = m00 + m11 + m22;
         float w, x, y, z;
 
@@ -280,54 +282,41 @@ public class WaypointMover : Component
             y = (m12 + m21) / s;
             z = 0.25f * s;
         }
-
         return new quat(x, y, z, w);
     }
 
     private void ApplyRotationToAllObjects()
     {
         if (RotatingNodes == null) return;
-
         for (int i = 0; i < RotatingNodes.Count; i++)
         {
             if (RotatingNodes[i] != null)
             {
                 Node obj = RotatingNodes[i];
-                
-                // Сохраняем позицию
                 vec3 savedPosition = obj.WorldPosition;
-                
-                // Применяем вращение
                 obj.SetWorldRotation(currentRotation);
-                
-                // Восстанавливаем позицию
                 obj.WorldPosition = savedPosition;
-                // Восстанавливаем масштаб
                 obj.WorldScale = originalScales[i];
             }
         }
     }
 
-    // Метод для ручного сброса маршрута
     public void ResetRoute()
     {
         currentWaypointIndex = 0;
         isMoving = true;
     }
 
-    // Метод для проверки завершения маршрута
     public bool IsRouteComplete()
     {
         return !isMoving;
     }
 
-    // Метод для получения текущего индекса точки
     public int GetCurrentWaypointIndex()
     {
         return currentWaypointIndex;
     }
 
-    // Метод для установки новых точек маршрута
     public void SetWaypoints(List<Node> newWaypoints)
     {
         waypoints = newWaypoints;
