@@ -7,7 +7,8 @@ using UnigineApp.data.Code.Auxiliary;
 [Component(PropertyGuid = "a381a22c813efc4a5191cc9cec8c8a4dc85c8adc")]
 public class CrossSectionUi : Component
 {
-    [ShowInEditor] public Node CUBE;
+    [ShowInEditor]
+    public Node CUBE;
 
     private EngineWindowViewport mainWindow;
     private Node currentNode;
@@ -43,6 +44,7 @@ public class CrossSectionUi : Component
         crossSections = new List<CrossSection>();
         countCross = 0;
 
+        // Остальная логика инициализации (не GUI)
         Game.Player.AddChild(CUBE);
         CUBE.WorldTransform = Game.Player.WorldTransform + MathLib.Translate(new vec3(0.3f, 0.5f, 0.2f));
         CUBE.Scale = new vec3(1.3f);
@@ -51,20 +53,22 @@ public class CrossSectionUi : Component
 
     void Update()
     {
+        // Отложенная инициализация GUI — ждём, пока thisTreeGui загрузится
         if (!guiInitialized && thisTree == null)
         {
             thisTree = FindComponentInWorld<thisTreeGui>();
-            if (thisTree != null)
+            if (thisTree != null && thisTree.tabMenu2 != null)
             {
                 InitializeCrossSectionGui();
                 guiInitialized = true;
             }
         }
 
-        // ... остальная логика Update (создание разреза, удаление и т.д.) — без изменений ...
+        // Логика создания/удаления разрезов
         if (isCreatingCrossSection && !stopCreatingCrossSection)
         {
             Node nearestNode = CameraCast.GetNodeUnderCursor();
+
             if (nearestNode != null)
             {
                 if (nearestNode.Name == "cross_section_plane")
@@ -99,7 +103,8 @@ public class CrossSectionUi : Component
         if (Input.IsMouseButtonDown(Input.MOUSE_BUTTON.LEFT) && mainWindow.IsFocused)
         {
             Node node = CameraCast.GetNodeUnderCursor();
-            if (node != null) currentNode = node;
+            if (node != null)
+                currentNode = node;
         }
 
         if (Input.IsKeyDown(Input.KEY.DELETE) && currentNode != null && currentNode.Name == "cross_section_plane")
@@ -107,7 +112,8 @@ public class CrossSectionUi : Component
             DeleteCrossSection();
         }
 
-        if (true) // delsetupchush всегда false → упрощаем
+        // Обновление поворота куба
+        if (!false) // delsetupchush всегда false → упрощаем
         {
             var rotate = Game.Player.GetRotation();
             vec3 degrees = rotate.Euler * MathLib.RAD2DEG;
@@ -118,13 +124,14 @@ public class CrossSectionUi : Component
 
     private void InitializeCrossSectionGui()
     {
-        WidgetVBox statusBarContainer = thisTree.tabMenu2; // теперь это VBox
+        WidgetHBox statusBarContainer = thisTree.tabMenu2;
         Gui gui = statusBarContainer.Gui;
 
-        // Создаём горизонтальную группу для элементов разреза
+        // --- Группа элементов разреза ---
         WidgetHBox crossSectionGroup = new(gui);
-        crossSectionGroup.SetSpace(8, 0); // отступ между элементами
+        crossSectionGroup.SetSpace(8, 0); // Горизонтальный отступ между элементами
 
+        // Метка и кнопки
         labelCrossSection = new(gui, "Разрез по плоскости");
         addCrossButton = new(gui, "Добавить разрез") { Width = 130, Height = 30 };
         delCrossButton = new(gui, "Удалить разрез") { Width = 130, Height = 30 };
@@ -133,6 +140,7 @@ public class CrossSectionUi : Component
         crossSectionGroup.AddChild(addCrossButton, Gui.ALIGN_LEFT);
         crossSectionGroup.AddChild(delCrossButton, Gui.ALIGN_LEFT);
 
+        // Чекбоксы
         showCrossCheckBox = new(gui) { Text = "Включить разрез", Checked = true };
         showPlaneCheckBox = new(gui) { Text = "Показать плоскость", Checked = true };
         fillCheckBox = new(gui) { Text = "Место пересечения", Checked = true };
@@ -141,12 +149,17 @@ public class CrossSectionUi : Component
         crossSectionGroup.AddChild(showPlaneCheckBox, Gui.ALIGN_LEFT);
         crossSectionGroup.AddChild(fillCheckBox, Gui.ALIGN_LEFT);
 
+        // Комбобокс
         crossSectionType = new(gui);
         crossSectionType.AddItem("Разрез");
         crossSectionGroup.AddChild(crossSectionType, Gui.ALIGN_LEFT);
 
-        // 🔥 ВСТАВЛЯЕМ СВЕРХУ — индекс 0
-        statusBarContainer.InsertChild(crossSectionGroup, 0, Gui.ALIGN_LEFT);
+        // Добавляем отступ перед группой (чтобы не сливалась с предыдущими кнопками)
+        WidgetSpacer spacer = new(gui) { Width = 20 };
+        statusBarContainer.AddChild(spacer, Gui.ALIGN_LEFT);
+        //вот нижние 2 должны быть не по вертикали друг за другом добавлены, а по горизонтали( не в строчку а в столбец)
+        statusBarContainer.AddChild(crossSectionGroup, Gui.ALIGN_TOP);
+        statusBarContainer.AddChild(thisTree.divcontainer2, Gui.ALIGN_TOP);
 
         // Подписки
         addCrossButton.EventClicked.Connect(StartCreatingCrossSection);
@@ -162,7 +175,7 @@ public class CrossSectionUi : Component
             }
         });
 
-        // === Элементы в funcMain — остаются как есть ===
+        // --- Элементы в funcMain (остаются как есть) ---
         WidgetHBox mainFunctions = FuncController.funcMain;
 
         WidgetButton loadModelButton = new(mainFunctions.Gui, "Загрузить модель") { Width = 150, Height = 30 };
@@ -177,7 +190,11 @@ public class CrossSectionUi : Component
         scaleSlider.SetPosition(180, 85);
         mainFunctions.AddChild(scaleSlider, Gui.ALIGN_OVERLAP | Gui.ALIGN_TOP);
 
-        loadModelButton.EventClicked.Connect(() => scaleSlider.Value = 1);
+        loadModelButton.EventClicked.Connect(() =>
+        {
+            scaleSlider.Value = 1;
+        });
+
         scaleSlider.EventChanged.Connect(() =>
         {
             var myNode = test.myNode;
@@ -186,8 +203,88 @@ public class CrossSectionUi : Component
         });
     }
 
-    // ... остальные методы (StartCreatingCrossSection, FinalizeCrossSection, DeleteCrossSection) — без изменений ...
-    private void StartCreatingCrossSection() { /* как было */ }
-    private void FinalizeCrossSection() { /* как было */ }
-    private void DeleteCrossSection() { /* как было */ }
+    private void StartCreatingCrossSection()
+    {
+        if (isCreatingCrossSection) return;
+
+        isCreatingCrossSection = true;
+        stopCreatingCrossSection = false;
+        tempCrossSectionPlane = World.GetNodeByName("cross_section_plane");
+        tempCrossSectionPlane.Enabled = true;
+
+        if (crossSectionType.GetItemText(0) == "Разрез")
+        {
+            crossSectionType.RemoveItem(0);
+        }
+    }
+
+    private void FinalizeCrossSection()
+    {
+        stopCreatingCrossSection = true;
+
+        crossSections.Add(new CrossSection());
+        indexCross = crossSections.Count - 1;
+        countCross = crossSections.Count;
+
+        tempCrossSectionPlane.WorldPosition = new vec3(0, 0, 0);
+        tempCrossSectionPlane.Enabled = false;
+
+        crossSectionType.AddItem("Разрез " + countCross);
+        crossSectionType.CurrentItem = indexCross;
+
+        showPlaneCheckBox.EventChanged.Connect(() =>
+            crossSections[indexCross].cross_section_plane.Enabled = showPlaneCheckBox.Checked);
+        showCrossCheckBox.EventChanged.Connect(() =>
+        {
+            crossSections[indexCross].cross = showCrossCheckBox.Checked;
+            var myNode = test.myNode;
+            if (myNode != null)
+                CrossSection.SetParametersToAllNodes(myNode, crossSections);
+        });
+        fillCheckBox.EventChanged.Connect(() =>
+        {
+            LocalSectionUi.fillCheckBox.Checked = fillCheckBox.Checked;
+            crossSections[indexCross].OnFillChanged(fillCheckBox.Checked);
+        });
+
+        showCrossCheckBox.Checked = crossSections[indexCross].cross;
+        showPlaneCheckBox.Checked = crossSections[indexCross].cross_section_plane.Enabled;
+        fillCheckBox.Checked = crossSections[indexCross].colorSection;
+
+        isCreatingCrossSection = false;
+    }
+
+    private void DeleteCrossSection()
+    {
+        if (crossSections.Count == 0) return;
+
+        crossSections[indexCross].DeletePlane();
+        crossSections.RemoveAt(indexCross);
+        crossSectionType.RemoveItem(indexCross);
+        countCross--;
+
+        if (countCross <= 0)
+        {
+            crossSectionType.AddItem("Разрез");
+        }
+
+        if (indexCross > 0)
+        {
+            indexCross--;
+            crossSectionType.CurrentItem = indexCross;
+            showCrossCheckBox.Checked = crossSections[indexCross].cross;
+            showPlaneCheckBox.Checked = crossSections[indexCross].cross_section_plane.Enabled;
+            fillCheckBox.Checked = crossSections[indexCross].colorSection;
+        }
+        else if (countCross > 0)
+        {
+            crossSectionType.CurrentItem = 0;
+            for (int i = 0; i < crossSections.Count; i++)
+            {
+                crossSectionType.SetItemText(i, "Разрез " + (i + 1));
+            }
+        }
+
+        CrossSection.SetParametersToAllNodes(test.myNode, crossSections);
+    }
 }
