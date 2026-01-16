@@ -44,43 +44,49 @@ public class CrossSectionUi : Component
 
     EngineWindowViewport timeLine = null;
 
+    private thisTreeGui thisTree;
+    
+
     bool delsetupchush = true;
 
     void Init()
     {
+        thisTree = FindComponentInWorld<thisTreeGui>();
         mainWindow = WindowManager.MainWindow;
-        WidgetHBox viewsFunctions = FuncController.funcViews;
+        //WidgetHBox viewsFunctions = FuncController.funcViews;
+        WidgetHBox statusBarContainer = thisTree.tabMenu2;
+        Gui gui = statusBarContainer.Gui;
 
-        labelCrossSection = new WidgetLabel(viewsFunctions.Gui, " Разрез по плоскости") { Width = 130 };
-        addCrossButton = new WidgetButton(viewsFunctions.Gui, "Добавить разрез") { Width = 130 };
-        delCrossButton = new WidgetButton(viewsFunctions.Gui, "Удалить разрез") { Width = 130 };
+        labelCrossSection = new WidgetLabel(gui, " Разрез по плоскости") { Width = 130 };
+        addCrossButton = new WidgetButton(gui, "Добавить разрез") { Width = 130 };
+        delCrossButton = new WidgetButton(gui, "Удалить разрез") { Width = 130 };
         addCrossButton.Height = delCrossButton.Height = 30;
 
-        WidgetVBox functionsCrossSectionVBox = new(viewsFunctions.Gui);
+        WidgetVBox functionsCrossSectionVBox = new(gui);
         functionsCrossSectionVBox.SetPosition(180, 8);
         functionsCrossSectionVBox.AddChild(labelCrossSection, Gui.ALIGN_LEFT);
         functionsCrossSectionVBox.AddChild(addCrossButton, Gui.ALIGN_LEFT);
         functionsCrossSectionVBox.AddChild(delCrossButton, Gui.ALIGN_LEFT);
         functionsCrossSectionVBox.SetSpace(0, 5);
-        viewsFunctions.AddChild(functionsCrossSectionVBox, Gui.ALIGN_OVERLAP);
+        statusBarContainer.AddChild(functionsCrossSectionVBox, Gui.ALIGN_OVERLAP);
 
-        showCrossCheckBox = new WidgetCheckBox(viewsFunctions.Gui) { Checked = true, Text = "Включить разрез" };
-        showPlaneCheckBox = new WidgetCheckBox(viewsFunctions.Gui) { Checked = true, Text = "Показать плоскость" };
-        fillCheckBox = new WidgetCheckBox(viewsFunctions.Gui) { Checked = true, Text = "Место пересечения" };
+        showCrossCheckBox = new WidgetCheckBox(gui) { Checked = true, Text = "Включить разрез" };
+        showPlaneCheckBox = new WidgetCheckBox(gui) { Checked = true, Text = "Показать плоскость" };
+        fillCheckBox = new WidgetCheckBox(gui) { Checked = true, Text = "Место пересечения" };
 
-        crossSectionType = new(viewsFunctions.Gui);
+        crossSectionType = new(gui);
         crossSectionType.SetPosition(322, 12);
         crossSectionType.AddItem("Разрез");
-        viewsFunctions.AddChild(crossSectionType, Gui.ALIGN_OVERLAP);
+        statusBarContainer.AddChild(crossSectionType, Gui.ALIGN_OVERLAP);
 
-        functionsCrossVBox = new(viewsFunctions.Gui);
+        functionsCrossVBox = new(gui);
         functionsCrossVBox.SetPosition(320, 28);
         functionsCrossVBox.AddChild(showCrossCheckBox, Gui.ALIGN_LEFT);
         functionsCrossVBox.AddChild(showPlaneCheckBox, Gui.ALIGN_LEFT);
         functionsCrossVBox.AddChild(fillCheckBox, Gui.ALIGN_LEFT);
         functionsCrossVBox.SetSpace(0, 6);
         functionsCrossVBox.Enabled = true;
-        viewsFunctions.AddChild(functionsCrossVBox, Gui.ALIGN_OVERLAP);
+        statusBarContainer.AddChild(functionsCrossVBox, Gui.ALIGN_OVERLAP);
 
         crossSections = [];
         countCross = 0;
