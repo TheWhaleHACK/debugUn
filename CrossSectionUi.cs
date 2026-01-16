@@ -124,7 +124,7 @@ public class CrossSectionUi : Component
 
     private void InitializeCrossSectionGui()
     {
-        WidgetHBox statusBarContainer = thisTree.tabMenu2;
+        WidgetVBox statusBarContainer = thisTree.tabMenu2;
         Gui gui = statusBarContainer.Gui;
 
         // --- Группа элементов разреза ---
@@ -154,12 +154,10 @@ public class CrossSectionUi : Component
         crossSectionType.AddItem("Разрез");
         crossSectionGroup.AddChild(crossSectionType, Gui.ALIGN_LEFT);
 
-        // Добавляем отступ перед группой (чтобы не сливалась с предыдущими кнопками)
-        WidgetSpacer spacer = new(gui) { Width = 20 };
-        statusBarContainer.AddChild(spacer, Gui.ALIGN_LEFT);
         //вот нижние 2 должны быть не по вертикали друг за другом добавлены, а по горизонтали( не в строчку а в столбец)
-        statusBarContainer.AddChild(crossSectionGroup, Gui.ALIGN_TOP);
-        statusBarContainer.AddChild(thisTree.divcontainer2, Gui.ALIGN_TOP);
+        statusBarContainer.AddChild(crossSectionGroup);
+        statusBarContainer.AddChild(thisTree.divcontainer2);
+        statusBarContainer.SetSpace(0, 5);
 
         // Подписки
         addCrossButton.EventClicked.Connect(StartCreatingCrossSection);
