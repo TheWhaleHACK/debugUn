@@ -1,26 +1,28 @@
+using System.Collections;
 using System.Collections.Generic;
 using Unigine;
 
 [Component(PropertyGuid = "5d0b708e14083d56730fe87db6e8972264ecae5d")]
 public class WaypointMover : Component
 {
-    [ShowInEditor] private Node splineObject; // Основной объект (родитель для RotatingNodes)
-    [ShowInEditor] private List<Node> waypoints; // Точки маршрута (на карте)
+    [ShowInEditor] private Node splineObject; // Объект, который будет перемещаться (ваш основной объект)
+    [ShowInEditor] private List<Node> waypoints; // Список точек маршрута
     [ShowInEditor] private Node speedLever; // Управление скоростью
-    [ShowInEditor] private List<Node> RotatingNodes; // ДОЧЕРНИЕ ноды внутри splineObject
+    [ShowInEditor] private List<Node> RotatingNodes; // Объекты, которые будут вращаться
     [ShowInEditor] private float rotationSpeed = 0.05f;
-    [ShowInEditor] private float waypointThreshold = 2.0f;
-    [ShowInEditor] private bool loopRoute = false;
+    [ShowInEditor] private float waypointThreshold = 2.0f; // Расстояние до точки, при котором считается, что достигли
+    [ShowInEditor] private bool loopRoute = false; // Зацикливать маршрут или нет
 
     private int currentWaypointIndex = 0;
     private bool isMoving = true;
     private quat currentRotation = quat.IDENTITY;
-    private List<vec3> originalLocalScales = new List<vec3>(); // ← ЛОКАЛЬНЫЕ масштабы
-
+    private List<vec3> originalScales = new List<vec3>();
+    
     private globalSpeed globalSpeedComponent;
 
     void Init()
     {
+        // Получаем компонент управления скоростью
         if (speedLever != null)
         {
             globalSpeedComponent = speedLever.GetComponent<globalSpeed>();
@@ -28,39 +30,41 @@ public class WaypointMover : Component
                 Log.Error($"Node {speedLever.Name} does not have a globalSpeed component!");
         }
 
-        // Инициализация начального вращения из первого дочернего объекта
-        if (RotatingNodes?.Count > 0 && RotatingNodes[0] != null)
+        // Инициализируем начальное вращение из первого объекта в списке вращающихся
+        if (RotatingNodes != null && RotatingNodes.Count > 0 && RotatingNodes[0] != null)
         {
-            currentRotation = RotatingNodes[0].GetRotation(); // ← ЛОКАЛЬНОЕ вращение!
+            currentRotation = RotatingNodes[0].GetWorldRotation();
         }
         else
         {
             currentRotation = quat.IDENTITY;
         }
 
-        InitializeOriginalLocalScales();
+        // Сохраняем исходные масштабы вращающихся объектов
+        InitializeOriginalScales();
     }
 
-    private void InitializeOriginalLocalScales()
+    private void InitializeOriginalScales()
     {
-        originalLocalScales.Clear();
+        originalScales.Clear();
         if (RotatingNodes != null)
         {
-            foreach (var node in RotatingNodes)
+            foreach (var obj in RotatingNodes)
             {
-                if (node != null)
+                if (obj != null)
                 {
-                    originalLocalScales.Add(node.Scale); // ← ЛОКАЛЬНЫЙ масштаб
+                    originalScales.Add(obj.WorldScale);
                 }
                 else
                 {
-                    originalLocalScales.Add(vec3.ONE);
+                    originalScales.Add(vec3.ONE);
                 }
             }
         }
     }
 
     private float GetSpeed() => globalSpeedComponent?.gSpeed ?? 0f;
+
     private bool IsEnd() => globalSpeedComponent?.gEnd ?? false;
 
     private void Update()
@@ -68,29 +72,34 @@ public class WaypointMover : Component
         if (!isMoving || splineObject == null || waypoints == null || waypoints.Count == 0)
             return;
 
-        // Обработка завершения/зацикливания
         if (currentWaypointIndex >= waypoints.Count)
         {
             if (loopRoute)
-                currentWaypointIndex = 0;
+            {
+                currentWaypointIndex = 0; // Зацикливаем маршрут
+            }
             else
             {
+                // Достигли последней точки
                 isMoving = false;
                 return;
             }
         }
 
         Node targetWaypoint = waypoints[currentWaypointIndex];
-        if (targetWaypoint == null) return;
+        if (targetWaypoint == null)
+            return;
 
-        // ⚠️ Инверсия позиции точки — специфика вашей сцены (движущаяся карта)
+        // Получаем позицию текущей точки
         vec3 targetPosition = -targetWaypoint.WorldPosition;
         vec3 currentPosition = splineObject.WorldPosition;
 
+        // Вычисляем направление к цели
         vec3 direction = targetPosition - currentPosition;
+        Log.MessageLine(direction.Length);
         float distanceToTarget = MathLib.Length(direction);
 
-        // Достигли точки?
+        // Если близко к точке - переходим к следующей
         if (distanceToTarget < waypointThreshold)
         {
             if (currentWaypointIndex < waypoints.Count - 1)
@@ -100,35 +109,42 @@ public class WaypointMover : Component
             else
             {
                 if (loopRoute)
-                    currentWaypointIndex = 0;
+                {
+                    currentWaypointIndex = 0; // Зацикливаем
+                }
                 else
                 {
+                    // Достигли последней точки
                     isMoving = false;
                     return;
                 }
             }
-
-            // Обновляем цель, если есть следующая точка
+            
+            // Обновляем цель для следующей точки
             if (currentWaypointIndex < waypoints.Count && waypoints[currentWaypointIndex] != null)
             {
-                targetPosition = -waypoints[currentWaypointIndex].WorldPosition; // ← не забываем минус!
+                targetPosition = waypoints[currentWaypointIndex].WorldPosition;
                 direction = targetPosition - currentPosition;
                 distanceToTarget = MathLib.Length(direction);
             }
         }
 
-        // Перемещение основного объекта
+        // Перемещение объекта
         float speed = GetSpeed() * Game.IFps;
         if (direction.Length < 0.001f) return; // избегаем деления на ноль
-
         vec3 moveDirection = MathLib.Normalize(direction);
+        
+        // Ограничиваем перемещение, чтобы не пролететь мимо точки
         float maxMoveDistance = MathLib.Min(speed, distanceToTarget);
         vec3 newPosition = currentPosition + moveDirection * maxMoveDistance;
+
+        // Устанавливаем новую позицию
         splineObject.WorldPosition = newPosition;
 
-        // === ВРАЩЕНИЕ ===
+
+        //ROTATING
         // В Unigine "вперёд" = -Z → desiredForward = -moveDirection
-        vec3 desiredForward = -moveDirection;
+        vec3 desiredForward = moveDirection;
         vec3 desiredUp = vec3.UP;
 
         vec3 right = MathLib.Normalize(MathLib.Cross(desiredUp, desiredForward));
@@ -186,7 +202,6 @@ public class WaypointMover : Component
         // Плавная интерполяция
         currentRotation = MathLib.Slerp(currentRotation, targetRotation, rotationSpeed);
 
-        // Применяем ЛОКАЛЬНОЕ вращение ко всем дочерним объектам
         if (RotatingNodes != null)
         {
             for (int i = 0; i < RotatingNodes.Count; i++)
@@ -194,25 +209,125 @@ public class WaypointMover : Component
                 if (RotatingNodes[i] != null)
                 {
                     Node child = RotatingNodes[i];
-                    // Устанавливаем ЛОКАЛЬНОЕ вращение и масштаб
                     child.SetRotation(currentRotation);     // ← ключевое изменение!
-                    child.Scale = originalLocalScales[i];  // ← локальный масштаб
+                    child.WorldScale = originalScales[i]; 
                     // Позицию НЕ трогаем — она задана в иерархии
                 }
             }
         }
     }
 
-    // --- Вспомогательные методы ---
+    private quat CalculateLookRotation(vec3 forward)
+    {
+        // В Unigine обычно "вперед" - это -Z ось
+        vec3 desiredForward = -MathLib.Normalize(forward);
+        vec3 desiredUp = vec3.UP;
+
+        // Проверяем, не параллельны ли векторы
+        vec3 right = MathLib.Normalize(MathLib.Cross(desiredUp, desiredForward));
+        if (right.Length < 0.001f)
+        {
+            desiredUp = vec3.RIGHT;
+            right = MathLib.Normalize(MathLib.Cross(desiredUp, desiredForward));
+        }
+
+        vec3 up = MathLib.Normalize(MathLib.Cross(desiredForward, right));
+
+        // Создаем кватернион из ортонормированного базиса
+        return CreateQuaternionFromBasis(right, up, desiredForward);
+    }
+
+    private quat CreateQuaternionFromBasis(vec3 right, vec3 up, vec3 forward)
+    {
+        // Матрица поворота из базисных векторов
+        float m00 = right.x, m01 = right.y, m02 = right.z;
+        float m10 = up.x, m11 = up.y, m12 = up.z;
+        float m20 = forward.x, m21 = forward.y, m22 = forward.z;
+
+        // Преобразование матрицы 3x3 в кватернион
+        float trace = m00 + m11 + m22;
+        float w, x, y, z;
+
+        if (trace > 0)
+        {
+            float s = MathLib.Sqrt(trace + 1.0f) * 2f;
+            w = 0.25f * s;
+            x = (m21 - m12) / s;
+            y = (m02 - m20) / s;
+            z = (m10 - m01) / s;
+        }
+        else if ((m00 > m11) & (m00 > m22))
+        {
+            float s = MathLib.Sqrt(1.0f + m00 - m11 - m22) * 2f;
+            w = (m21 - m12) / s;
+            x = 0.25f * s;
+            y = (m01 + m10) / s;
+            z = (m02 + m20) / s;
+        }
+        else if (m11 > m22)
+        {
+            float s = MathLib.Sqrt(1.0f + m11 - m00 - m22) * 2f;
+            w = (m02 - m20) / s;
+            x = (m01 + m10) / s;
+            y = 0.25f * s;
+            z = (m12 + m21) / s;
+        }
+        else
+        {
+            float s = MathLib.Sqrt(1.0f + m22 - m00 - m11) * 2f;
+            w = (m10 - m01) / s;
+            x = (m02 + m20) / s;
+            y = (m12 + m21) / s;
+            z = 0.25f * s;
+        }
+
+        return new quat(x, y, z, w);
+    }
+
+    private void ApplyRotationToAllObjects()
+    {
+        if (RotatingNodes == null) return;
+
+        for (int i = 0; i < RotatingNodes.Count; i++)
+        {
+            if (RotatingNodes[i] != null)
+            {
+                Node obj = RotatingNodes[i];
+                
+                // Сохраняем позицию
+                vec3 savedPosition = obj.WorldPosition;
+                
+                // Применяем вращение
+                obj.SetWorldRotation(currentRotation);
+                
+                // Восстанавливаем позицию
+                obj.WorldPosition = savedPosition;
+                // Восстанавливаем масштаб
+                obj.WorldScale = originalScales[i];
+            }
+        }
+    }
+
+    // Метод для ручного сброса маршрута
     public void ResetRoute()
     {
         currentWaypointIndex = 0;
         isMoving = true;
     }
 
-    public bool IsRouteComplete() => !isMoving;
-    public int GetCurrentWaypointIndex() => currentWaypointIndex;
+    // Метод для проверки завершения маршрута
+    public bool IsRouteComplete()
+    {
+        return !isMoving;
+    }
 
+    // Метод для получения текущего индекса точки
+    public int GetCurrentWaypointIndex()
+    {
+        return currentWaypointIndex;
+    }
+
+    // Метод для установки новых точек маршрута
     public void SetWaypoints(List<Node> newWaypoints)
     {
         waypoints = newWaypoints;
